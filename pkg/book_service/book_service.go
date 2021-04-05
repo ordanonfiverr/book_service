@@ -2,12 +2,11 @@ package book_service
 
 import (
 	"book_service/pkg/api"
-	//"book_service/pkg/errors"
+	"book_service/pkg/errors"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	errors "github.com/fiverr/go_errors"
 )
 
 type BookService struct {
@@ -125,13 +124,6 @@ func SendRequest(method string, url string, body interface{}, responseObj interf
 	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
 		return errors.NewHttpError(resp.StatusCode, resp.Status, nil)
 	}
-
-	//bodyBytes, err = ioutil.ReadAll(resp.Body)
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//bodyString := string(bodyBytes)
-	//print(bodyString)
 
 	if err := json.NewDecoder(resp.Body).Decode(responseObj); err != nil {
 		return err
