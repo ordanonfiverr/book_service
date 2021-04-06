@@ -4,6 +4,7 @@ import (
 	"book_service/pkg/api"
 	"book_service/pkg/book_service"
 	"book_service/pkg/errors"
+	"context"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	redis "gopkg.in/redis.v5"
@@ -36,7 +37,7 @@ func AddRoutes(r *gin.Engine, redisClient *redis.Client, bookService *book_servi
 	})
 
 	r.GET("/store", func(c *gin.Context) {
-		resp, err := bookService.StoreStats()
+		resp, err := bookService.StoreStats(context.Background())
 		if err != nil {
 			handleError(c, err)
 			return
@@ -59,7 +60,7 @@ func AddRoutes(r *gin.Engine, redisClient *redis.Client, bookService *book_servi
 			return
 		}
 
-		resp, err := bookService.SearchBooks(title, author, float32(minPrice), float32(maxPrice))
+		resp, err := bookService.SearchBooks(context.Background(), title, author, float32(minPrice), float32(maxPrice))
 		if err != nil {
 			handleError(c, err)
 			return
@@ -75,7 +76,7 @@ func AddRoutes(r *gin.Engine, redisClient *redis.Client, bookService *book_servi
 			return
 		}
 
-		id, err := bookService.AddBook(book)
+		id, err := bookService.AddBook(context.Background(), book)
 		if err != nil {
 			handleError(c, err)
 			return
@@ -87,7 +88,7 @@ func AddRoutes(r *gin.Engine, redisClient *redis.Client, bookService *book_servi
 		id := c.Param("id")
 		newTitle := c.Query("title")
 
-		if err := bookService.UpdateBookTitle(id, newTitle); err != nil {
+		if err := bookService.UpdateBookTitle(context.Background(), id, newTitle); err != nil {
 			handleError(c, err)
 			return
 		}
@@ -96,7 +97,7 @@ func AddRoutes(r *gin.Engine, redisClient *redis.Client, bookService *book_servi
 
 	r.DELETE("/book/:id", func(c *gin.Context) {
 		id := c.Param("id")
-		if err := bookService.DeleteBook(id); err != nil {
+		if err := bookService.DeleteBook(context.Background(), id); err != nil {
 			handleError(c, err)
 			return
 		}
@@ -105,7 +106,7 @@ func AddRoutes(r *gin.Engine, redisClient *redis.Client, bookService *book_servi
 
 	r.GET("/book/:id", func(c *gin.Context) {
 		id := c.Param("id")
-		book, err := bookService.GetBook(id)
+		book, err := bookService.GetBook(context.Background(), id)
 		if err != nil {
 			handleError(c, err)
 			return

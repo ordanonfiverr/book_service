@@ -3,175 +3,114 @@ package book_service
 import (
 	"book_service/pkg/api"
 	"book_service/pkg/errors"
-	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
+	"github.com/olivere/elastic/v6"
 	"net/http"
 )
 
 type BookService struct {
-	HostUrl string
+	elasticClient *elastic.Client
 }
 
-func NewBookService(hostUrl string) *BookService {
+func NewBookService(elasticClient *elastic.Client) *BookService {
 	return &BookService{
-		HostUrl: hostUrl,
+		elasticClient: elasticClient,
 	}
 }
 
-func (b *BookService) StoreStats() (*api.StoreStats, error) {
-	url := fmt.Sprintf("%s/books/_search", b.HostUrl)
-	var result struct{
-		Aggregations struct{
-			Dcount struct{
-				Value int `json:"value"`
-			} `json:"dcount"`
-		} `json:"aggregations"`
-		Hits struct{
-			Total int `json:"total"`
-		} `json:"hits"`
+func (b *BookService) StoreStats(ctx context.Context) (*api.StoreStats, error) {
+	const authorsDcountAggName = "authors-dcount"
+
+	searchResult, err := b.elasticClient.Search().
+		Index("books").
+		Size(120).
+		Aggregation(authorsDcountAggName, elastic.NewCardinalityAggregation().Field("author's name.keyword")).
+		Query(elastic.NewMatchAllQuery()).
+		Do(ctx)
+
+	if err != nil {
+		return nil, ConvertError(err)
 	}
-	if err := SendRequest(http.MethodGet, url, StoreQuery, &result); err != nil {
-		return nil, err
+	authorsDcountAgg, found := searchResult.Aggregations.Cardinality(authorsDcountAggName)
+	if !found {
+		return nil, errors.NewHttpError(http.StatusInternalServerError, "missing agg result", nil)
 	}
 
 	return &api.StoreStats{
-		Count:  result.Hits.Total,
-		Dcount: result.Aggregations.Dcount.Value,
+		Count:  searchResult.Hits.TotalHits,
+		Dcount: int(*authorsDcountAgg.Value),
 	}, nil
 }
 
-func (b *BookService) SearchBooks(title string, authorName string, minPrice float32, maxPrice float32) (interface{}, error) {
-	url := fmt.Sprintf("%s/books/_search", b.HostUrl)
+func (b *BookService) SearchBooks(ctx context.Context, title string, authorName string, minPrice float32, maxPrice float32) (interface{}, error) {
+	searchResult, err := b.elasticClient.Search().
+		Index("books").
+		Query(elastic.NewBoolQuery().
+			Must(elastic.NewMatchPhraseQuery("title", title)).
+			Must(elastic.NewMatchPhraseQuery("author's name", authorName)).
+			Filter(elastic.NewRangeQuery("price").Gte(minPrice).Lte(maxPrice))).
+		Do(ctx)
 
-	var result struct{
-		Hits struct {
-			Hits interface{} `json:"hits"`
-		} `json:"hits"`
+	if err != nil {
+		return nil, ConvertError(err)
+	}
+	if searchResult.Hits == nil || searchResult.Hits.Hits == nil {
+		return nil, errors.NewHttpError(http.StatusInternalServerError, "missing results", nil)
 	}
 
-	err := SendRequest(http.MethodGet, url, fmt.Sprintf(SearchBooksQuery, title, authorName, minPrice, maxPrice), &result)
-
-	return result.Hits.Hits, err
+	return searchResult.Hits.Hits, nil
 }
 
-func (b *BookService) DeleteBook(id string) error {
-	url := fmt.Sprintf("%s/books/book/%s", b.HostUrl, id)
-	var x interface{}
-	err := SendRequest(http.MethodDelete, url, nil, x)
+func (b *BookService) DeleteBook(ctx context.Context, id string) error {
+	_, err := b.elasticClient.Delete().
+		Index("books").
+		Type("book").
+		Id(id).
+		Do(ctx)
+	return ConvertError(err)
+}
+
+func (b *BookService) UpdateBookTitle(ctx context.Context, id string, title string) error {
+	_, err := b.elasticClient.Update().
+		Index("books").
+		Type("book").
+		Id(id).
+		Doc(map[string]string{ "title": title}).
+		Do(ctx)
+
+	return ConvertError(err)
+}
+
+func (b *BookService) AddBook(ctx context.Context, book *api.Book) (id string, err error) {
+	indexResponse, err := b.elasticClient.Index().
+		Index("books").
+		Type("book").
+		BodyJson(book).
+		Do(ctx)
+	if err != nil {
+		return "", ConvertError(err)
+	}
+
+	return indexResponse.Id, nil
+}
+
+func (b *BookService) GetBook(ctx context.Context, id string) (*json.RawMessage, error) {
+	getResponse, err := b.elasticClient.Get().
+		Index("books").
+		Type("book").
+		Id(id).
+		Do(ctx)
+	if err != nil {
+		return nil, ConvertError(err)
+	}
+
+	return getResponse.Source, nil
+}
+
+func ConvertError(err error) error {
+	if elasticErr, ok := err.(*elastic.Error); ok {
+		return errors.NewHttpError(elasticErr.Status, err.Error(), err)
+	}
 	return err
 }
-
-func (b *BookService) UpdateBookTitle(id string, title string) error {
-	url := fmt.Sprintf("%s/books/book/%s/_update", b.HostUrl, id)
-	body := fmt.Sprintf(UpdateBookTitleQuery, title)
-
-	resp := &ElasticSearchPostResponse{}
-	return SendRequest(http.MethodPost, url, body, resp)
-}
-
-func (b *BookService) AddBook(book *api.Book) (id string, err error) {
-	url := fmt.Sprintf("%s/books/book/", b.HostUrl)
-	resp := &ElasticSearchPostResponse{}
-	if err := SendRequest(http.MethodPost, url, book, resp); err != nil {
-		return "", err
-	}
-	return resp.Id, nil
-}
-
-func (b *BookService) GetBook(id string) (interface{}, error) {
-	url := fmt.Sprintf("%s/books/book/%s", b.HostUrl, id)
-
-	resp := &ElasticSearchResponse{}
-	if err := SendRequest(http.MethodGet, url, nil, resp); err != nil {
-		return nil, err
-	}
-
-	return resp.Source, nil
-}
-
-func SendRequest(method string, url string, body interface{}, responseObj interface{}) error {
-	// initialize http client
-	client := &http.Client{}
-
-	// marshal to json
-	var bodyBytes []byte
-	var err error
-	if bodyString, ok := body.(string); ok {
-		bodyBytes = []byte(bodyString)
-	} else {
-		bodyBytes, err = json.Marshal(body)
-		if err != nil {
-			return err
-		}
-	}
-
-	// set the HTTP method, url, and request body
-	req, err := http.NewRequest(method, url, bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		return err
-	}
-
-	// set the request header Content-Type for json
-	req.Header.Set("Content-Type", "application/json; charset=utf-8")
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
-		return errors.NewHttpError(resp.StatusCode, resp.Status, nil)
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(responseObj); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-const (
-	StoreQuery = `
-{
-  "size": 0,
-  "aggs": {
-    "dcount": {
-      "cardinality": {
-        "field": "author's name.keyword"
-      }
-    }
-  }
-}`
-
-	SearchBooksQuery = `
-{
- "query": {
-   "bool": {
-     "must": [
-       { "match_phrase": {"title": "%s"}},
-       { "match_phrase": {"author's name": "%s"}}
-     ],
-     "filter": [
-       { 
-         "range": {
-           "price": {
-             "gte": %f,
-             "lte": %f
-           }
-         }
-       }
-     ]
-   }
- }
-}`
-
-	UpdateBookTitleQuery = `
-{
- "doc": {
-   "title": "%s"
- }
-}
-`
-)
