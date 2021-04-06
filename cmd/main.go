@@ -18,14 +18,14 @@ func main() {
 
 	bookService := book_service.NewBookService(elasticClient)
 
-	client := redis.NewClient(&redis.Options{
+	redisClient := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
 
 	r := gin.Default()
-	routes.AddRoutes(r, client, bookService)
+	routes.AddRoutes(r, redisClient, bookService)
 
 	r.Run("0.0.0.0:8081") // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
 }
