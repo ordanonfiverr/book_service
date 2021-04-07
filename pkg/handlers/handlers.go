@@ -3,7 +3,7 @@ package handlers
 import (
 	"book_service/pkg/api"
 	"book_service/pkg/book_service"
-	"book_service/pkg/errors"
+	"book_service/pkg/consts"
 	"context"
 	"encoding/json"
 	"github.com/gin-gonic/gin"
@@ -145,7 +145,7 @@ func (h *Handler) GetBook(c *gin.Context) {
 }
 
 func handleError(c *gin.Context, err error) {
-	if httpErr, ok := err.(*errors.HttpError); ok && httpErr.Code == http.StatusNotFound {
+	if err == consts.NotFoundErr {
 		c.JSON(http.StatusNotFound, err)
 	} else {
 		c.JSON(http.StatusInternalServerError, err)

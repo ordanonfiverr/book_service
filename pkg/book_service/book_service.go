@@ -2,9 +2,10 @@ package book_service
 
 import (
 	"book_service/pkg/api"
-	"book_service/pkg/errors"
+	"book_service/pkg/consts"
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/olivere/elastic/v6"
 	"net/http"
 )
@@ -39,7 +40,7 @@ func (b *BookService) StoreStats(ctx context.Context) (*api.StoreStats, error) {
 	}
 	authorsDcountAgg, found := searchResult.Aggregations.Cardinality(authorsDcountAggName)
 	if !found {
-		return nil, errors.NewHttpError(http.StatusInternalServerError, "missing agg result", nil)
+		return nil, errors.New("missing agg result")
 	}
 
 	return &api.StoreStats{
@@ -61,7 +62,7 @@ func (b *BookService) SearchBooks(ctx context.Context, title string, authorName 
 		return nil, ConvertError(err)
 	}
 	if searchResult.Hits == nil || searchResult.Hits.Hits == nil {
-		return nil, errors.NewHttpError(http.StatusInternalServerError, "missing results", nil)
+		return nil, errors.New("missing agg result")
 	}
 
 	books := make([]*api.Book, len(searchResult.Hits.Hits))
@@ -128,7 +129,7 @@ func (b *BookService) GetBook(ctx context.Context, id string) (*api.Book, error)
 
 func ConvertElasticBookResponseToBook(id string, raw *json.RawMessage) (*api.Book, error) {
 	if raw == nil {
-		return nil, errors.NewHttpError(http.StatusInternalServerError, "wrong response format", nil)
+		return nil, errors.New("wrong response format")
 	}
 	book := &api.Book{}
 	if err := json.Unmarshal(*raw, book); err != nil {
@@ -140,8 +141,8 @@ func ConvertElasticBookResponseToBook(id string, raw *json.RawMessage) (*api.Boo
 }
 
 func ConvertError(err error) error {
-	if elasticErr, ok := err.(*elastic.Error); ok {
-		return errors.NewHttpError(elasticErr.Status, err.Error(), err)
+	if elasticErr, ok := err.(*elastic.Error); ok && elasticErr.Status == http.StatusNotFound {
+		return consts.NotFoundErr
 	}
 	return err
 }
