@@ -48,7 +48,7 @@ func (b *BookService) StoreStats(ctx context.Context) (*api.StoreStats, error) {
 	}, nil
 }
 
-func (b *BookService) SearchBooks(ctx context.Context, title string, authorName string, minPrice float32, maxPrice float32) (interface{}, error) {
+func (b *BookService) SearchBooks(ctx context.Context, title string, authorName string, minPrice float32, maxPrice float32) ([]*api.Book, error) {
 	searchResult, err := b.elasticClient.Search().
 		Index(booksIndex).
 		Query(elastic.NewBoolQuery().
@@ -64,7 +64,15 @@ func (b *BookService) SearchBooks(ctx context.Context, title string, authorName 
 		return nil, errors.NewHttpError(http.StatusInternalServerError, "missing results", nil)
 	}
 
-	return searchResult.Hits.Hits, nil
+	books := make([]*api.Book, len(searchResult.Hits.Hits))
+	for i, hit := range searchResult.Hits.Hits {
+		book, err := ConvertElasticBookResponseToBook(hit.Id, hit.Source)
+		if err != nil {
+			return nil, err
+		}
+		books[i] = book
+	}
+	return books, nil
 }
 
 func (b *BookService) DeleteBook(ctx context.Context, id string) error {
@@ -100,7 +108,7 @@ func (b *BookService) AddBook(ctx context.Context, book *api.Book) (id string, e
 	return indexResponse.Id, nil
 }
 
-func (b *BookService) GetBook(ctx context.Context, id string) (*json.RawMessage, error) {
+func (b *BookService) GetBook(ctx context.Context, id string) (*api.Book, error) {
 	getResponse, err := b.elasticClient.Get().
 		Index(booksIndex).
 		Type(bookType).
@@ -110,7 +118,25 @@ func (b *BookService) GetBook(ctx context.Context, id string) (*json.RawMessage,
 		return nil, ConvertError(err)
 	}
 
-	return getResponse.Source, nil
+	book, err := ConvertElasticBookResponseToBook(getResponse.Id, getResponse.Source)
+	if err != nil {
+		return nil, err
+	}
+
+	return book, nil
+}
+
+func ConvertElasticBookResponseToBook(id string, raw *json.RawMessage) (*api.Book, error) {
+	if raw == nil {
+		return nil, errors.NewHttpError(http.StatusInternalServerError, "wrong response format", nil)
+	}
+	book := &api.Book{}
+	if err := json.Unmarshal(*raw, book); err != nil {
+		return nil, err
+	}
+
+	book.Id = id
+	return book, nil
 }
 
 func ConvertError(err error) error {
