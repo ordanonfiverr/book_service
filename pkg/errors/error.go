@@ -3,9 +3,9 @@ package errors
 import "fmt"
 
 type HttpError struct {
-	Code int
+	Code    int
 	Message string
-	Err error
+	Err     error
 }
 
 func (e *HttpError) Error() string {
@@ -16,8 +16,8 @@ var _ error = &HttpError{}
 
 func NewHttpError(code int, message string, err error) *HttpError {
 	return &HttpError{
-		Code: code,
+		Code:    code,
 		Message: message,
-		Err: err,
+		Err:     err,
 	}
 }

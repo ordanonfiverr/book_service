@@ -9,6 +9,11 @@ import (
 	"net/http"
 )
 
+const (
+	booksIndex = "books"
+	bookType   = "book"
+)
+
 type BookService struct {
 	elasticClient *elastic.Client
 }
@@ -20,12 +25,12 @@ func NewBookService(elasticClient *elastic.Client) *BookService {
 }
 
 func (b *BookService) StoreStats(ctx context.Context) (*api.StoreStats, error) {
-	const authorsDcountAggName = "authors-dcount"
+	const authorsDcountAggName = "authors_dcount_i"
 
 	searchResult, err := b.elasticClient.Search().
-		Index("books").
+		Index(booksIndex).
 		Size(120).
-		Aggregation(authorsDcountAggName, elastic.NewCardinalityAggregation().Field("author's name.keyword")).
+		Aggregation(authorsDcountAggName, elastic.NewCardinalityAggregation().Field("author_name.keyword")).
 		Query(elastic.NewMatchAllQuery()).
 		Do(ctx)
 
@@ -45,10 +50,10 @@ func (b *BookService) StoreStats(ctx context.Context) (*api.StoreStats, error) {
 
 func (b *BookService) SearchBooks(ctx context.Context, title string, authorName string, minPrice float32, maxPrice float32) (interface{}, error) {
 	searchResult, err := b.elasticClient.Search().
-		Index("books").
+		Index(booksIndex).
 		Query(elastic.NewBoolQuery().
 			Must(elastic.NewMatchPhraseQuery("title", title)).
-			Must(elastic.NewMatchPhraseQuery("author's name", authorName)).
+			Must(elastic.NewMatchPhraseQuery("author_name", authorName)).
 			Filter(elastic.NewRangeQuery("price").Gte(minPrice).Lte(maxPrice))).
 		Do(ctx)
 
@@ -64,8 +69,8 @@ func (b *BookService) SearchBooks(ctx context.Context, title string, authorName 
 
 func (b *BookService) DeleteBook(ctx context.Context, id string) error {
 	_, err := b.elasticClient.Delete().
-		Index("books").
-		Type("book").
+		Index(booksIndex).
+		Type(bookType).
 		Id(id).
 		Do(ctx)
 	return ConvertError(err)
@@ -73,10 +78,10 @@ func (b *BookService) DeleteBook(ctx context.Context, id string) error {
 
 func (b *BookService) UpdateBookTitle(ctx context.Context, id string, title string) error {
 	_, err := b.elasticClient.Update().
-		Index("books").
-		Type("book").
+		Index(booksIndex).
+		Type(bookType).
 		Id(id).
-		Doc(map[string]string{ "title": title}).
+		Doc(map[string]string{"title": title}).
 		Do(ctx)
 
 	return ConvertError(err)
@@ -84,8 +89,8 @@ func (b *BookService) UpdateBookTitle(ctx context.Context, id string, title stri
 
 func (b *BookService) AddBook(ctx context.Context, book *api.Book) (id string, err error) {
 	indexResponse, err := b.elasticClient.Index().
-		Index("books").
-		Type("book").
+		Index(booksIndex).
+		Type(bookType).
 		BodyJson(book).
 		Do(ctx)
 	if err != nil {
@@ -97,8 +102,8 @@ func (b *BookService) AddBook(ctx context.Context, book *api.Book) (id string, e
 
 func (b *BookService) GetBook(ctx context.Context, id string) (*json.RawMessage, error) {
 	getResponse, err := b.elasticClient.Get().
-		Index("books").
-		Type("book").
+		Index(booksIndex).
+		Type(bookType).
 		Id(id).
 		Do(ctx)
 	if err != nil {

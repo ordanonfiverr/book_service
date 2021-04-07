@@ -2,6 +2,7 @@ package main
 
 import (
 	"book_service/pkg/book_service"
+	"book_service/pkg/handlers"
 	"book_service/pkg/routes"
 	"github.com/gin-gonic/gin"
 	"github.com/olivere/elastic/v6"
@@ -24,8 +25,10 @@ func main() {
 		DB:       0,  // use default DB
 	})
 
+	handler := handlers.NewHandler(redisClient, bookService)
+
 	r := gin.Default()
-	routes.AddRoutes(r, redisClient, bookService)
+	routes.AddRoutes(r, handler)
 
 	r.Run("0.0.0.0:8081") // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
 }
