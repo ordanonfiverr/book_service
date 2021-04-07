@@ -5,7 +5,7 @@ import (
 	"book_service/pkg/book_service"
 	"book_service/pkg/errors"
 	"context"
-	"fmt"
+	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"gopkg.in/redis.v5"
 	"net/http"
@@ -32,8 +32,18 @@ func (h *Handler) CollectUserActivity(c *gin.Context) {
 		return
 	}
 
-	h.redisClient.LPush(key, fmt.Sprintf("{ 'Method':'%s', 'RequestUri':'%s'}",
-		c.Request.Method, c.Request.URL.RequestURI()))
+	userActivityJson, err := json.Marshal(api.UserActivity{
+		Method:     c.Request.Method,
+		RequestUri: c.Request.URL.RequestURI(),
+	})
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, err)
+		c.Abort()
+		return
+	}
+
+	h.redisClient.LPush(key, userActivityJson)
 	h.redisClient.LTrim(key, 0, 2)
 }
 
@@ -44,7 +54,15 @@ func (h *Handler) Activity(c *gin.Context) {
 		handleError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, lastActions)
+
+	results := make([]*api.UserActivity, len(lastActions))
+	for i, action := range lastActions {
+		userActivity := &api.UserActivity{}
+		json.Unmarshal([]byte(action), userActivity)
+		results[i] = userActivity
+	}
+
+	c.JSON(http.StatusOK, results)
 }
 
 func (h *Handler) Store(c *gin.Context) {
